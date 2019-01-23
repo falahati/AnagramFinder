@@ -47,7 +47,7 @@ namespace RabbitChallenge
             // possible word combination associated with a character distribution
             var wordCombinations = anagramCombinations.SelectMany(anagramCombination =>
                 anagramCombination
-                    .Where(distribution => distribution.Rank > 0)
+                    .Where(distribution => !distribution.IsEmpty())
                     .Select(distribution => sanitizedAnagramWordPairs[distribution])
                     .GetCartesianProduct()
             );
@@ -136,7 +136,7 @@ namespace RabbitChallenge
             words[0] = initialCharacterDistribution;
 
             // If filter is already empty, then this word is enough already
-            if (filter.Rank == 0)
+            if (filter.IsEmpty())
             {
                 yield return words;
 

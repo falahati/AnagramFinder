@@ -67,6 +67,11 @@ namespace RabbitChallenge
             return false;
         }
 
+        public bool IsEmpty()
+        {
+            return Rank == 0;
+        }
+
         /// <summary>
         ///     Checks to see if a <see cref="CharacterDistribution" /> can be contained in (and is a subset of) this
         ///     <see cref="CharacterDistribution" />.
