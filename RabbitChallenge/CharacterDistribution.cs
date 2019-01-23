@@ -49,7 +49,6 @@ namespace RabbitChallenge
         ///     Indicates if this object represents a valid character distribution
         /// </summary>
         /// <returns>if invalid false; otherwise true.</returns>
-        // TODO: This should be optimized further
         public bool IsValid()
         {
             // Only consider single character distribution if the character is 'a', 'i' or 'o'

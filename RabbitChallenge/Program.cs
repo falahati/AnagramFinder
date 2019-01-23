@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -15,14 +16,20 @@ namespace RabbitChallenge
             // Initializing variables
             var totalTestedPhrases = 0d;
             var testedPhrasesSinceLastUpdate = 0d;
-            var dictionaryWords = File.ReadAllLines(options.WordDictionaryPath);
             var hashBytes = options.Hashes.Select(t => t.Item2).ToArray();
             var md5 = MD5.Create();
+
+            // Sensitizing and load dictionary to memory with PLINQ
+            var dictionaryWords = File.ReadAllLines(options.WordDictionaryPath)
+                .AsParallel()
+                .WithDegreeOfParallelism(options.NumberOfTasks)
+                .SanitizeWordDictionary();
+
 
             // Starting the real job of finding matching phrases
             var updateStopWatch = Stopwatch.StartNew();
             var mainStopWatch = Stopwatch.StartNew();
-
+            
             var matchedPhrases =
                 dictionaryWords.GetMatchedPhrases(
                     options.AnagramFilter,

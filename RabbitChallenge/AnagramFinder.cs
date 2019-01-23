@@ -12,7 +12,7 @@ namespace RabbitChallenge
         /// <summary>
         ///     Tries to find matching phrases to meet a provided <see cref="anagramFilter" />.
         /// </summary>
-        /// <param name="dictionaryWords">A list of all possible words.</param>
+        /// <param name="sanitizedAnagramWordPairs">A list of all possible words.</param>
         /// <param name="anagramFilter">A <see cref="CharacterDistribution" /> containing characters to filter with.</param>
         /// <param name="maximumNumberOfWords">Maximum number of words in a phrase.</param>
         /// <param name="numberOfTasks">Number of tasks to spawn and search with.</param>
@@ -21,24 +21,14 @@ namespace RabbitChallenge
         // ReSharper disable once ExcessiveIndentation
         // ReSharper disable once TooManyDeclarations
         public static ParallelQuery<byte[]> GetMatchedPhrases(
-            this IEnumerable<string> dictionaryWords,
+            this Dictionary<CharacterDistribution, byte[][]> sanitizedAnagramWordPairs,
             CharacterDistribution anagramFilter,
             int maximumNumberOfWords,
             int numberOfTasks
         )
         {
-            // Sensitizing and loading dictionary to memory with PLINQ
-            // This also removed invalid word based on the initial filter
-            Dictionary<CharacterDistribution, byte[][]> sanitizedAnagramWordPairs = dictionaryWords
-                .AsParallel()
-                .WithDegreeOfParallelism(numberOfTasks)
-                .SanitizeWordDictionary(anagramFilter);
-
-            // ------------ PARALLEL EXECUTION BREAKS HERE ------------ //
-
             // Create a second array containing only character distributions
-            // TODO: This should be optimized further
-            CharacterDistribution[] wordAnagrams = sanitizedAnagramWordPairs.Keys.ToArray();
+            var wordAnagrams = sanitizedAnagramWordPairs.Keys.Where(anagramFilter.CanContain).ToArray();
 
             // Initialize characters combinations query with PLINQ
             var anagramCombinations = wordAnagrams
@@ -72,6 +62,32 @@ namespace RabbitChallenge
                         ).ToArray()
                     )
             );
+        }
+
+
+        /// <summary>
+        ///     Sanitizes, sort and group similar words, then loads them all into memory
+        /// </summary>
+        /// <param name="enumerable">The string sequence to sanitize</param>
+        /// <returns>
+        ///     A sanitized dictionary of <see cref="CharacterDistribution" />s along with their corresponding words byte
+        ///     arrays
+        /// </returns>
+        // ReSharper disable once TooManyDeclarations
+        public static Dictionary<CharacterDistribution, byte[][]> SanitizeWordDictionary(
+            this IEnumerable<string> enumerable
+        )
+        {
+            return enumerable
+                .Select(str => str.ToLower().Trim())
+                .Distinct()
+                .GroupBy(CharacterDistribution.FromString)
+                .Where(grouping => grouping.Key.IsValid())
+                .OrderByDescending(grouping => grouping.Key.Rank)
+                .ToDictionary(
+                    grouping => grouping.Key,
+                    grouping => grouping.Select(s => Encoding.ASCII.GetBytes(s)).ToArray()
+                );
         }
 
         /// <summary>
@@ -226,7 +242,7 @@ namespace RabbitChallenge
 
                     continue;
                 }
-                
+
                 var subCombinations = GetDistributionSubCombinations(
                     characterDistributions.Where(newFilter.CanContain).ToArray(),
                     newWords,
@@ -240,35 +256,6 @@ namespace RabbitChallenge
                     yield return combination;
                 }
             }
-        }
-
-
-        /// <summary>
-        ///     Sanitizes, filters, sort and group similar words, then loads them all into memory
-        /// </summary>
-        /// <param name="enumerable">The string sequence to sanitize</param>
-        /// <param name="filter">The initial filter to be used</param>
-        /// <returns>
-        ///     A sanitized dictionary of <see cref="CharacterDistribution" />s along with their corresponding words byte
-        ///     arrays
-        /// </returns>
-        // ReSharper disable once TooManyDeclarations
-        private static Dictionary<CharacterDistribution, byte[][]> SanitizeWordDictionary(
-            this IEnumerable<string> enumerable,
-            CharacterDistribution filter
-        )
-        {
-            return enumerable
-                .Select(str => str.ToLower().Trim())
-                .Distinct()
-                .Where(str => str.Length <= filter.Rank && str.Length > 0)
-                .GroupBy(CharacterDistribution.FromString)
-                .Where(grouping => grouping.Key.IsValid() && filter.CanContain(grouping.Key))
-                .OrderByDescending(grouping => grouping.Key.Rank)
-                .ToDictionary(
-                    grouping => grouping.Key,
-                    grouping => grouping.Select(s => Encoding.ASCII.GetBytes(s)).ToArray()
-                );
         }
     }
 }
