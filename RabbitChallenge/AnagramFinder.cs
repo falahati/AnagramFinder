@@ -28,15 +28,17 @@ namespace RabbitChallenge
         )
         {
             // Create a second array containing only character distributions
-            var wordAnagrams = sanitizedAnagramWordPairs.Keys.Where(anagramFilter.CanContain).ToArray();
+            var filteredDistributions = sanitizedAnagramWordPairs.Keys.Where(anagramFilter.CanContain).ToArray();
+            var distributionsHashTable = new GenericHashTable<CharacterDistribution>(filteredDistributions, null);
 
             // Initialize characters combinations query with PLINQ
-            var anagramCombinations = wordAnagrams
+            var anagramCombinations = filteredDistributions
                 .AsParallel()
                 .WithDegreeOfParallelism(numberOfTasks)
                 .SelectMany(distribution =>
                     GetDistributionCombinations(
-                        wordAnagrams,
+                        filteredDistributions,
+                        distributionsHashTable,
                         distribution,
                         maximumNumberOfWords,
                         anagramFilter - distribution
@@ -113,29 +115,29 @@ namespace RabbitChallenge
         /// <summary>
         ///     Returns valid combinations of <see cref="CharacterDistribution" />s that fits the filter provided.
         /// </summary>
-        /// <param name="characterDistributions">
+        /// <param name="filteredDistributions">
         ///     A list of all possible <see cref="CharacterDistribution" />s; should be already
-        ///     sanitized.
+        ///     sanitized and filtered.
         /// </param>
-        /// <param name="initialCharacterDistribution">The initial word to continue the search with.</param>
+        /// <param name="distributionsHashTable">Unfiltered hash table of all possible <see cref="CharacterDistribution" />s.</param>
+        /// <param name="firstWordDistribution">The initial word to continue the search with.</param>
         /// <param name="maxPhraseLength">The maximum possible length of phrases.</param>
         /// <param name="filter">The filter to be applied to child searches.</param>
         /// <returns>An array of <see cref="CharacterDistribution" />s representing a phrase.</returns>
-        // TODO: Should be possible to merge and might even increase the performance with
-        // TODO: <see cref="GetDistributionSubCombinations(CharacterDistribution[], CharacterDistribution[], int, int, CharacterDistribution)" />
         // ReSharper disable once TooManyArguments
         private static IEnumerable<CharacterDistribution[]> GetDistributionCombinations(
-            CharacterDistribution[] characterDistributions,
-            CharacterDistribution initialCharacterDistribution,
+            CharacterDistribution[] filteredDistributions,
+            GenericHashTable<CharacterDistribution> distributionsHashTable,
+            CharacterDistribution firstWordDistribution,
             int maxPhraseLength,
             CharacterDistribution filter
         )
         {
             // Create an array with the maximum possible size, so we don't need to resize it later
             var words = new CharacterDistribution[maxPhraseLength];
-            words[0] = initialCharacterDistribution;
+            words[0] = firstWordDistribution;
 
-            // If filter is already empty, then this word is enough already
+            // If filter is already empty, then this word is enough
             if (filter.IsEmpty())
             {
                 yield return words;
@@ -149,9 +151,10 @@ namespace RabbitChallenge
                 yield break;
             }
 
+            // If only one word is missing, try finding it based on the filter directly
             if (maxPhraseLength == 2)
             {
-                if (characterDistributions.Contains(filter))
+                if (distributionsHashTable.Contains(filter))
                 {
                     words[1] = filter;
 
@@ -163,7 +166,8 @@ namespace RabbitChallenge
 
             // Otherwise, go through all sub combinations
             var subCombinations = GetDistributionSubCombinations(
-                characterDistributions.Where(filter.CanContain).ToArray(),
+                filteredDistributions.Where(filter.CanContain).ToArray(),
+                distributionsHashTable,
                 words,
                 1,
                 maxPhraseLength,
@@ -185,29 +189,34 @@ namespace RabbitChallenge
         ///     is that this  method wont check to see if the currently passed <see cref="CharacterDistribution" />
         ///     meets the passed filter.
         /// </summary>
-        /// <param name="characterDistributions">A list of all possible <see cref="CharacterDistribution" />s.</param>
-        /// <param name="currentDistribution">An array of previous <see cref="CharacterDistribution" />s.</param>
+        /// <param name="filteredDistributions">
+        ///     A list of all possible <see cref="CharacterDistribution" />s. Should be already
+        ///     filtered.
+        /// </param>
+        /// <param name="distributionsHashTable">Unfiltered hash table of all possible <see cref="CharacterDistribution" />s.</param>
+        /// <param name="phraseDistributions">An array of previous <see cref="CharacterDistribution" />s.</param>
         /// <param name="currentPhraseLength">
         ///     The number of <see cref="CharacterDistribution" />s in the
-        ///     <see cref="currentDistribution" /> argument.
+        ///     <see cref="phraseDistributions" /> argument.
         /// </param>
         /// <param name="maxPhraseLength">The maximum possible length of phrases.</param>
         /// <param name="filter">The filter to be applied to child searches.</param>
         /// <returns>An array of <see cref="CharacterDistribution" />s representing a phrase.</returns>
         // ReSharper disable once TooManyArguments
         private static IEnumerable<CharacterDistribution[]> GetDistributionSubCombinations(
-            CharacterDistribution[] characterDistributions,
-            CharacterDistribution[] currentDistribution,
+            CharacterDistribution[] filteredDistributions,
+            GenericHashTable<CharacterDistribution> distributionsHashTable,
+            CharacterDistribution[] phraseDistributions,
             int currentPhraseLength,
             int maxPhraseLength,
             CharacterDistribution filter
         )
         {
-            // Check each word
-            foreach (var word in characterDistributions)
+            // Trying to find the next word
+            foreach (var word in filteredDistributions)
             {
                 var newWords = new CharacterDistribution[maxPhraseLength];
-                Array.Copy(currentDistribution, newWords, currentPhraseLength);
+                Array.Copy(phraseDistributions, newWords, currentPhraseLength);
                 newWords[currentPhraseLength] = word;
 
                 // Try to proactively decide if this word is going to be enough
@@ -224,16 +233,20 @@ namespace RabbitChallenge
                     continue;
                 }
 
+                // Calculate the required characters after this one
                 var newFilter = filter - word;
 
+                // If we still missing some characters; but so little that
+                // it doesn't make sense to continue; ignore this word
                 if (!newFilter.IsValid())
                 {
                     continue;
                 }
 
+                // If only one word is missing, try finding it based on the filter directly
                 if (currentPhraseLength == maxPhraseLength - 2)
                 {
-                    if (characterDistributions.Contains(newFilter))
+                    if (distributionsHashTable.Contains(newFilter))
                     {
                         newWords[currentPhraseLength + 1] = newFilter;
 
@@ -244,7 +257,8 @@ namespace RabbitChallenge
                 }
 
                 var subCombinations = GetDistributionSubCombinations(
-                    characterDistributions.Where(newFilter.CanContain).ToArray(),
+                    filteredDistributions.Where(newFilter.CanContain).ToArray(),
+                    distributionsHashTable,
                     newWords,
                     currentPhraseLength + 1,
                     maxPhraseLength,

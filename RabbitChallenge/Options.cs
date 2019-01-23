@@ -1,10 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
 namespace RabbitChallenge
 {
-    public class Options
+    internal class Options
     {
         // ReSharper disable once TooManyDependencies
         private Options(
@@ -12,23 +13,22 @@ namespace RabbitChallenge
             int numberOfTasks,
             string wordDictionaryPath,
             CharacterDistribution anagramFilter,
-            Tuple<string, byte[]>[] hashes,
-            bool noReport)
+            Dictionary<uint[], string> hashes,
+            bool silence)
         {
             MaximumNumberOfWords = maximumNumberOfWords;
             NumberOfTasks = numberOfTasks;
             WordDictionaryPath = wordDictionaryPath;
             AnagramFilter = anagramFilter;
             Hashes = hashes;
-            NoReport = noReport;
+            Silence = silence;
         }
 
         public CharacterDistribution AnagramFilter { get; }
-        public Tuple<string, byte[]>[] Hashes { get; }
+        public Dictionary<uint[], string> Hashes { get; }
         public int MaximumNumberOfWords { get; }
-
-        public bool NoReport { get; }
         public int NumberOfTasks { get; }
+        public bool Silence { get; }
         public string WordDictionaryPath { get; }
 
         public static Options FromArguments(string[] arguments)
@@ -64,11 +64,11 @@ namespace RabbitChallenge
                     .ToArray()
             ));
 
-            var noReport = arguments.LastOrDefault()?.Equals("NoReport", StringComparison.InvariantCultureIgnoreCase) ==
-                           true;
+            var silence =
+                arguments.LastOrDefault()?.Equals("Silence", StringComparison.InvariantCultureIgnoreCase) == true;
 
             var hashStrings =
-                (noReport ? arguments.Skip(4).SkipLast(1) : arguments.Skip(4))
+                (silence ? arguments.Skip(4).Take(arguments.Length - 5) : arguments.Skip(4))
                 .Select(s => s.ToLower().Trim())
                 .ToArray();
 
@@ -82,17 +82,27 @@ namespace RabbitChallenge
                 numberOfTasks,
                 wordDictionaryPath,
                 anagramFilter,
-                hashStrings.Select(
-                        hash => Tuple.Create(
-                            hash,
-                            Enumerable.Range(0, hash.Length)
-                                .Where(x => x % 2 == 0)
-                                .Select(x => Convert.ToByte(hash.Substring(x, 2), 16))
-                                .ToArray())
-                    )
-                    .ToArray(),
-                noReport
+                hashStrings.ToDictionary(GetMD5Bytes, hash => hash),
+                silence || Console.IsOutputRedirected
             );
+        }
+
+        // ReSharper disable once TooManyDeclarations
+        // ReSharper disable once InconsistentNaming
+        private static uint[] GetMD5Bytes(string hash)
+        {
+            return hash
+                .Select((c, i) => Tuple.Create(i - i % 2, c))
+                .GroupBy(t => t.Item1)
+                .Select(
+                    ts => Convert.ToByte(new string(ts.Select(t => t.Item2).ToArray()), 16)
+                )
+                .Select((b, i) => Tuple.Create(i - i % 4, b))
+                .GroupBy(t => t.Item1)
+                .Select(
+                    ts => BitConverter.ToUInt32(ts.Select(t => t.Item2).ToArray())
+                )
+                .ToArray();
         }
     }
 }

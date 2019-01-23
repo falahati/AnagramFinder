@@ -8,7 +8,7 @@ namespace RabbitChallenge
     ///     or as a way to describe a filter
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    public unsafe struct CharacterDistribution : IEquatable<CharacterDistribution>
+    internal unsafe struct CharacterDistribution : IEquatable<CharacterDistribution>
     {
         /// <summary>
         ///     The length of the table; 26 is the number of english characters
