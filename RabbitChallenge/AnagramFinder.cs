@@ -1,0 +1,278 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace RabbitChallenge
+{
+    internal static class AnagramFinder
+    {
+        private static readonly byte[] WordSeparatorBytes = Encoding.ASCII.GetBytes(" ");
+
+        /// <summary>
+        ///     Tries to find matching phrases to meet a provided <see cref="anagramFilter" />.
+        /// </summary>
+        /// <param name="dictionaryWords">A list of all possible words.</param>
+        /// <param name="anagramFilter">A <see cref="CharacterDistribution" /> containing characters to filter with.</param>
+        /// <param name="maximumNumberOfWords">Maximum number of words in a phrase.</param>
+        /// <param name="numberOfThreads">Number of threads to search with.</param>
+        /// <returns>An array of <see cref="T:byte[]" /> representing a phrase.</returns>
+        // ReSharper disable once TooManyArguments
+        // ReSharper disable once ExcessiveIndentation
+        public static ParallelQuery<byte[]> GetMatchedPhrases(
+            this IEnumerable<string> dictionaryWords,
+            CharacterDistribution anagramFilter,
+            int maximumNumberOfWords,
+            int numberOfThreads
+        )
+        {
+            // Sensitizing and loading dictionary to memory with PLINQ
+            // This also removed invalid word based on the initial filter
+            var sanitizedAnagramWordPairs = dictionaryWords
+                .AsParallel()
+                .WithDegreeOfParallelism(numberOfThreads)
+                .SanitizeWordDictionary(anagramFilter);
+
+            // ------------ PARALLEL EXECUTION BREAKS HERE ------------ //
+
+            // Create a second array containing only character distributions
+            // TODO: This should be optimized further
+            var wordAnagrams = sanitizedAnagramWordPairs.Keys.ToArray();
+
+            // Initialize characters combinations query with PLINQ
+            var anagramCombinations = wordAnagrams
+                .AsParallel()
+                .WithDegreeOfParallelism(numberOfThreads)
+                .SelectMany(distribution =>
+                    GetDistributionSubCombinations(
+                        wordAnagrams,
+                        distribution,
+                        maximumNumberOfWords,
+                        anagramFilter - distribution
+                    )
+                );
+
+            // Continue the characters combination query by extracting every 
+            // possible word combination associated with a character distribution
+            var wordCombinations = anagramCombinations.SelectMany(anagramCombination =>
+                anagramCombination
+                    .Where(distribution => distribution.Rank > 0)
+                    .Select(distribution => sanitizedAnagramWordPairs[distribution])
+                    .GetCartesianProduct()
+            );
+
+            // Create binary representations of phrases from the word combinations
+            return wordCombinations.Select(wordCombination =>
+                wordCombination
+                    .Aggregate(
+                        new byte[0],
+                        (before, item) => before.Concat(
+                            before.Length == 0 ? item : WordSeparatorBytes.Concat(item)
+                        ).ToArray()
+                    )
+            );
+        }
+
+        /// <summary>
+        ///     Performs a cross join; code is based on this:
+        ///     https://ericlippert.com/2010/06/28/computing-a-cartesian-product-with-linq/
+        /// </summary>
+        /// <typeparam name="T">The type of inner array.</typeparam>
+        /// <param name="sequences">The array of arrays.</param>
+        /// <returns>An array of all possible combination of passed array items.</returns>
+        // ReSharper disable once TooManyDeclarations
+        private static IEnumerable<IEnumerable<T>> GetCartesianProduct<T>(this IEnumerable<IEnumerable<T>> sequences)
+        {
+            return sequences?.Aggregate(
+                new[] {Enumerable.Empty<T>()} as IEnumerable<IEnumerable<T>>,
+                (accumulatedSequences, sequence) =>
+                    accumulatedSequences.SelectMany(
+                        accumulatedSequence => sequence,
+                        (accumulatedSequence, item) => accumulatedSequence.Concat(new[] {item})
+                    )
+            );
+        }
+
+        /// <summary>
+        ///     Returns valid combinations of <see cref="CharacterDistribution" />s that fits the filter provided.
+        /// </summary>
+        /// <param name="characterDistributions">
+        ///     A list of all possible <see cref="CharacterDistribution" />s; should be already
+        ///     sanitized.
+        /// </param>
+        /// <param name="initialCharacterDistribution">The initial word to continue the search with.</param>
+        /// <param name="maxPhraseLength">The maximum possible length of phrases.</param>
+        /// <param name="filter">The filter to be applied to child searches.</param>
+        /// <returns>An array of <see cref="CharacterDistribution" />s representing a phrase.</returns>
+        // TODO: Should be possible to merge and might even increase the performance with
+        // TODO: <see cref="GetDistributionSubCombinations(CharacterDistribution[], CharacterDistribution[], int, int, CharacterDistribution)" />
+        // ReSharper disable once TooManyArguments
+        private static IEnumerable<CharacterDistribution[]> GetDistributionSubCombinations(
+            CharacterDistribution[] characterDistributions,
+            CharacterDistribution initialCharacterDistribution,
+            int maxPhraseLength,
+            CharacterDistribution filter
+        )
+        {
+            // Create an array with the maximum possible size, so we don't need to resize it later
+            var words = new CharacterDistribution[maxPhraseLength];
+            words[0] = initialCharacterDistribution;
+
+            // If filter is already empty, then this word is enough already
+            if (filter.Rank == 0)
+            {
+                yield return words;
+
+                yield break;
+            }
+
+            // If maximum possible length of phrases is one, then this is the only word we had to check for
+            if (maxPhraseLength == 1)
+            {
+                yield break;
+            }
+
+            if (maxPhraseLength == 2)
+            {
+                if (characterDistributions.Contains(filter))
+                {
+                    words[1] = filter;
+
+                    yield return words;
+                }
+
+                yield break;
+            }
+
+            if (filter.Rank <= 1 && (filter.Rank != 1 || !filter.ShouldConsiderAsValid()))
+            {
+                yield break;
+            }
+
+            // Otherwise, go through all sub combinations
+            var subCombinations = GetDistributionSubCombinations(
+                characterDistributions.Where(filter.CanContain).ToArray(),
+                words,
+                1,
+                maxPhraseLength,
+                filter
+            );
+
+            // And yield if anything matched
+            foreach (var combination in subCombinations)
+            {
+                yield return combination;
+            }
+        }
+
+        /// <summary>
+        ///     Returns valid sub combinations of <see cref="CharacterDistribution" />s that fits the filter provided.
+        ///     The difference between this method and
+        ///     <see
+        ///         cref="GetDistributionSubCombinations(CharacterDistribution[], CharacterDistribution, int, CharacterDistribution)" />
+        ///     is that this  method wont check to see if the currently passed <see cref="CharacterDistribution" />
+        ///     meets the passed filter.
+        /// </summary>
+        /// <param name="characterDistributions">A list of all possible <see cref="CharacterDistribution" />s.</param>
+        /// <param name="currentDistribution">An array of previous <see cref="CharacterDistribution" />s.</param>
+        /// <param name="currentPhraseLength">
+        ///     The number of <see cref="CharacterDistribution" />s in the
+        ///     <see cref="currentDistribution" /> argument.
+        /// </param>
+        /// <param name="maxPhraseLength">The maximum possible length of phrases.</param>
+        /// <param name="filter">The filter to be applied to child searches.</param>
+        /// <returns>An array of <see cref="CharacterDistribution" />s representing a phrase.</returns>
+        // ReSharper disable once TooManyArguments
+        private static IEnumerable<CharacterDistribution[]> GetDistributionSubCombinations(
+            CharacterDistribution[] characterDistributions,
+            CharacterDistribution[] currentDistribution,
+            int currentPhraseLength,
+            int maxPhraseLength,
+            CharacterDistribution filter
+        )
+        {
+            // Check each word
+            foreach (var word in characterDistributions)
+            {
+                var newWords = new CharacterDistribution[maxPhraseLength];
+                Array.Copy(currentDistribution, newWords, currentPhraseLength);
+                newWords[currentPhraseLength] = word;
+
+                // Try to proactively decide if this word is going to be enough
+                if (word.Rank == filter.Rank)
+                {
+                    yield return newWords;
+
+                    continue;
+                }
+
+                // This was the last word, no need to go deeper
+                if (currentPhraseLength == maxPhraseLength - 1)
+                {
+                    continue;
+                }
+
+                var newFilter = filter - word;
+
+                if (currentPhraseLength == maxPhraseLength - 2)
+                {
+                    if (characterDistributions.Contains(newFilter))
+                    {
+                        newWords[currentPhraseLength + 1] = newFilter;
+
+                        yield return newWords;
+                    }
+
+                    continue;
+                }
+
+                if (newFilter.Rank <= 1 && (newFilter.Rank != 1 || !newFilter.ShouldConsiderAsValid()))
+                {
+                    continue;
+                }
+
+                var subCombinations = GetDistributionSubCombinations(
+                    characterDistributions.Where(newFilter.CanContain).ToArray(),
+                    newWords,
+                    currentPhraseLength + 1,
+                    maxPhraseLength,
+                    newFilter
+                );
+
+                foreach (var combination in subCombinations)
+                {
+                    yield return combination;
+                }
+            }
+        }
+
+
+        /// <summary>
+        ///     Sanitizes, filters, sort and group similar words, then loads them all into memory
+        /// </summary>
+        /// <param name="enumerable">The string sequence to sanitize</param>
+        /// <param name="filter">The initial filter to be used</param>
+        /// <returns>
+        ///     A sanitized dictionary of <see cref="CharacterDistribution" />s along with their corresponding words byte
+        ///     arrays
+        /// </returns>
+        // ReSharper disable once TooManyDeclarations
+        private static Dictionary<CharacterDistribution, byte[][]> SanitizeWordDictionary(
+            this IEnumerable<string> enumerable,
+            CharacterDistribution filter
+        )
+        {
+            return enumerable
+                .Select(str => str.ToLower().Trim())
+                .Distinct()
+                .Where(str => str.Length <= filter.Rank && (str.Length > 1 || str == "a" || str == "i" || str == "o"))
+                .GroupBy(CharacterDistribution.FromString)
+                .Where(grouping => filter.CanContain(grouping.Key))
+                .OrderByDescending(grouping => grouping.Key.Rank)
+                .ToDictionary(
+                    grouping => grouping.Key,
+                    grouping => grouping.Select(s => Encoding.ASCII.GetBytes(s)).ToArray()
+                );
+        }
+    }
+}

@@ -12,18 +12,22 @@ namespace RabbitChallenge
             int numberOfThreads,
             string wordDictionaryPath,
             CharacterDistribution anagramFilter,
-            Tuple<string, byte[]>[] hashes)
+            Tuple<string, byte[]>[] hashes,
+            bool noReport)
         {
             MaximumNumberOfWords = maximumNumberOfWords;
             NumberOfThreads = numberOfThreads;
             WordDictionaryPath = wordDictionaryPath;
             AnagramFilter = anagramFilter;
             Hashes = hashes;
+            NoReport = noReport;
         }
 
         public CharacterDistribution AnagramFilter { get; }
         public Tuple<string, byte[]>[] Hashes { get; }
         public int MaximumNumberOfWords { get; }
+
+        public bool NoReport { get; }
         public int NumberOfThreads { get; }
         public string WordDictionaryPath { get; }
 
@@ -60,8 +64,11 @@ namespace RabbitChallenge
                     .ToArray()
             ));
 
-            var hashStrings = arguments
-                .Skip(4)
+            var noReport = arguments.LastOrDefault()?.Equals("NoReport", StringComparison.InvariantCultureIgnoreCase) ==
+                           true;
+
+            var hashStrings =
+                (noReport ? arguments.Skip(4).SkipLast(1) : arguments.Skip(4))
                 .Select(s => s.ToLower().Trim())
                 .ToArray();
 
@@ -83,7 +90,8 @@ namespace RabbitChallenge
                                 .Select(x => Convert.ToByte(hash.Substring(x, 2), 16))
                                 .ToArray())
                     )
-                    .ToArray()
+                    .ToArray(),
+                noReport
             );
         }
     }

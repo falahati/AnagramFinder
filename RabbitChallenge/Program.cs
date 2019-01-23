@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -11,124 +10,35 @@ namespace RabbitChallenge
 {
     internal class Program
     {
-        private static readonly byte[] WordSeparatorBytes = Encoding.ASCII.GetBytes(" ");
-
-        // ReSharper disable once MethodTooLong
-        // ReSharper disable once TooManyArguments
-        // ReSharper disable once ExcessiveIndentation
-        private static IEnumerable<byte[]> GetMatchedPhrases(
-            IEnumerable<string> dictionaryWords,
-            CharacterDistribution anagramFilter,
-            int maximumNumberOfWords,
-            int numberOfThreads
-        )
+        private static void DoProcess(Options options)
         {
-            // Loading dictionary to memory
-            var sanitizedAnagramWordPairs = dictionaryWords
-                .AsParallel()
-                .WithDegreeOfParallelism(numberOfThreads)
-                .SanitizeWordDictionary(anagramFilter);
-
-            // Initialize characters combinations query
-            var anagramCombinations = sanitizedAnagramWordPairs.Keys
-                .ToArray()
-                .GetDistributionCombinations(
-                    anagramFilter,
-                    maximumNumberOfWords,
-                    numberOfThreads
-                );
-
-            // Go over each characters combination
-            foreach (var anagramCombination in anagramCombinations)
-            {
-                // Finding words that meet each characters combination
-                var wordCombinations = anagramCombination
-                    .Where(dis => dis.Rank > 0)
-                    .Select(distribution => sanitizedAnagramWordPairs[distribution])
-                    .GetCartesianProduct().ToArray();
-                
-                // Create an array of bytes for each word combinations and yield
-                foreach (var wordCombination in wordCombinations)
-                {
-                    IEnumerable<byte> bytes = new byte[0];
-                    var isEmpty = true;
-
-                    foreach (var word in wordCombination)
-                    {
-                        if (!isEmpty)
-                        {
-                            bytes = bytes.Concat(WordSeparatorBytes);
-                        }
-                        else
-                        {
-                            isEmpty = false;
-                        }
-
-                        bytes = bytes.Concat(word);
-                    }
-
-                    yield return bytes.ToArray();
-                }
-            }
-        }
-
-        private static void Main(string[] args)
-        {
-            // Loading options
-            Options options;
-
-            try
-            {
-                options = Options.FromArguments(args);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine();
-                Console.WriteLine(e.Message);
-                Console.WriteLine();
-                Console.WriteLine(
-                    "dotnet \"" +
-                    Path.GetFileName(Assembly.GetExecutingAssembly().Location) + "\" " +
-                    "{NumberOfWords} {NumberOfThreads} {\"DictionaryFilePath\"} {\"Anagram}\"} {\"MD5Hash\"} [\"MD5Hash\"] [\"MD5Hash\"] [...]"
-                );
-                Console.WriteLine();
-                return;
-            }
-
-            Console.WriteLine("Anagram: {0}", options.AnagramFilter);
-            Console.WriteLine("Word Dictionary: {0}", options.WordDictionaryPath);
-            Console.WriteLine("Max Number of Words: {0}", options.MaximumNumberOfWords);
-            Console.WriteLine("MD5 Hashes: {0}", string.Join(", ", options.Hashes.Select(t => t.Item1)));
-            Console.WriteLine("Number of Threads: {0}", options.NumberOfThreads);
-
-            // Separator
-            Console.WriteLine(new string('-', Console.BufferWidth - 1));
-
-            // Initializing
+            // Initializing variables
             var totalTestedPhrases = 0d;
-            var testedPhrasesSinceLastUpdate = 0ul;
+            var testedPhrasesSinceLastUpdate = 0d;
             var dictionaryWords = File.ReadAllLines(options.WordDictionaryPath);
             var hashBytes = options.Hashes.Select(t => t.Item2).ToArray();
             var md5 = MD5.Create();
 
-            // Start processing
+            // Starting the real job of finding matching phrases
             var updateStopWatch = Stopwatch.StartNew();
             var mainStopWatch = Stopwatch.StartNew();
 
-            var matchedPhrases = GetMatchedPhrases(
-                dictionaryWords,
-                options.AnagramFilter,
-                options.MaximumNumberOfWords,
-                options.NumberOfThreads
-            );
+            var matchedPhrases =
+                dictionaryWords.GetMatchedPhrases(
+                    options.AnagramFilter,
+                    options.MaximumNumberOfWords,
+                    options.NumberOfThreads
+                );
 
             foreach (var matchedPhrase in matchedPhrases)
             {
+                // Found a phrase, check MD5
                 var phraseHash = md5.ComputeHash(matchedPhrase);
                 var matchedHash = hashBytes.FirstOrDefault(hash => hash.SequenceEqual(phraseHash));
 
                 if (matchedHash != null)
                 {
+                    // Print the newly found and validated phrase
                     var matchedHashIndex = Array.IndexOf(hashBytes, matchedHash);
                     var hashFoundMessage = string.Format(
                         "-- Elapsed: {0:F2}s - Phrase: '{1}' - Matched Hash: [#{2:D}] {{{3}}} ",
@@ -137,14 +47,20 @@ namespace RabbitChallenge
                         matchedHashIndex,
                         options.Hashes[matchedHashIndex].Item1
                     );
-                    Console.CursorLeft = 0;
+
+                    if (!options.NoReport)
+                    {
+                        Console.CursorLeft = 0;
+                    }
+
                     Console.WriteLine(
                         hashFoundMessage +
                         new string(' ', Math.Max(1, Console.BufferWidth - hashFoundMessage.Length) - 1)
                     );
                 }
 
-                if (updateStopWatch.ElapsedMilliseconds >= 1000)
+                // Update after each minute - more or less
+                if (!options.NoReport && updateStopWatch.ElapsedMilliseconds > 1000)
                 {
                     totalTestedPhrases += testedPhrasesSinceLastUpdate;
                     var reportMessage = string.Format(
@@ -169,6 +85,9 @@ namespace RabbitChallenge
             mainStopWatch.Stop();
             md5.Dispose();
 
+            totalTestedPhrases += testedPhrasesSinceLastUpdate;
+
+            // Print summery
             var summeryMessage = string.Format(
                 "-- Elapsed: {0:F2}s - Phrases: {1:N0} - Average: {2:N0} H/s",
                 mainStopWatch.Elapsed.TotalSeconds,
@@ -176,12 +95,82 @@ namespace RabbitChallenge
                 totalTestedPhrases / mainStopWatch.Elapsed.TotalSeconds
             );
 
-            Console.CursorLeft = 0;
+            if (!options.NoReport)
+            {
+                Console.CursorLeft = 0;
+            }
+
             Console.WriteLine(
                 summeryMessage + new string(' ', Math.Max(1, Console.BufferWidth - summeryMessage.Length) - 1)
             );
-            Console.WriteLine("-- End of execution. Press 'Enter' to exit.");
-            Console.ReadLine();
+
+            if (!options.NoReport)
+            {
+                Console.WriteLine("-- End of program execution.");
+                Console.ReadLine();
+            }
+        }
+
+        private static Options GetOptions(string[] arguments)
+        {
+            // Loading options
+            Options options;
+
+            try
+            {
+                options = Options.FromArguments(arguments);
+            }
+            catch (Exception e)
+            {
+                // Print Help
+                var assemblyPath = Path.GetFileName(Assembly.GetExecutingAssembly().Location);
+                Console.WriteLine();
+                Console.WriteLine(e.Message);
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"dotnet \"{assemblyPath}\" {{NumberOfWords}} {{NumberOfThreads}} {{\"DictionaryFilePath\"}} {{\"Anagram}}\"}} {{\"MD5Hash\"}} [\"MD5Hash\"] [\"MD5Hash\"] [...] [NoReport]"
+                );
+                Console.WriteLine();
+
+                return null;
+            }
+
+            if (!options.NoReport)
+            {
+                // Printing current options
+                Console.WriteLine("Anagram: {0}", options.AnagramFilter);
+                Console.WriteLine("Word Dictionary: {0}", options.WordDictionaryPath);
+                Console.WriteLine("Max Number of Words: {0}", options.MaximumNumberOfWords);
+                Console.WriteLine("MD5 Hashes: {0}", string.Join(", ", options.Hashes.Select(t => t.Item1)));
+                Console.WriteLine("Number of Threads: {0}", options.NumberOfThreads);
+            }
+
+            return options;
+        }
+
+        private static void Main(string[] args)
+        {
+            var options = GetOptions(args);
+
+            if (options == null)
+            {
+                return;
+            }
+
+            if (!options.NoReport)
+            {
+                // Print a separator
+                Console.WriteLine(new string('-', Console.BufferWidth - 1));
+            }
+
+            try
+            {
+                DoProcess(options);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
         }
     }
 }
