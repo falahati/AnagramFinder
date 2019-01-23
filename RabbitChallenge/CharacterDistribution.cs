@@ -50,24 +50,19 @@ namespace RabbitChallenge
         /// </summary>
         /// <returns>if invalid false; otherwise true.</returns>
         // TODO: This should be optimized further
-        public bool ShouldConsiderAsValid()
+        public bool IsValid()
         {
-            if (Rank > 1)
-            {
-                return true;
-            }
-
-            if (Rank == 0)
-            {
-                return false;
-            }
-
             // Only consider single character distribution if the character is 'a', 'i' or 'o'
-            if (_distributionTable[IndexX] > 0 ||
-                _distributionTable[IndexI] > 0 ||
-                _distributionTable[IndexO] > 0)
+            if (Rank > 0)
             {
-                return true;
+                if (Rank > 1 ||
+                    _distributionTable[IndexX] > 0 ||
+                    _distributionTable[IndexI] > 0 ||
+                    _distributionTable[IndexO] > 0
+                )
+                {
+                    return true;
+                }
             }
 
             return false;
@@ -84,7 +79,7 @@ namespace RabbitChallenge
         /// </returns>
         public bool CanContain(CharacterDistribution other)
         {
-            if (other.Rank > Rank || other.Rank == 0)
+            if (other.Rank > Rank)
             {
                 return false;
             }

@@ -15,36 +15,37 @@ namespace RabbitChallenge
         /// <param name="dictionaryWords">A list of all possible words.</param>
         /// <param name="anagramFilter">A <see cref="CharacterDistribution" /> containing characters to filter with.</param>
         /// <param name="maximumNumberOfWords">Maximum number of words in a phrase.</param>
-        /// <param name="numberOfThreads">Number of threads to search with.</param>
+        /// <param name="numberOfTasks">Number of tasks to spawn and search with.</param>
         /// <returns>An array of <see cref="T:byte[]" /> representing a phrase.</returns>
         // ReSharper disable once TooManyArguments
         // ReSharper disable once ExcessiveIndentation
+        // ReSharper disable once TooManyDeclarations
         public static ParallelQuery<byte[]> GetMatchedPhrases(
             this IEnumerable<string> dictionaryWords,
             CharacterDistribution anagramFilter,
             int maximumNumberOfWords,
-            int numberOfThreads
+            int numberOfTasks
         )
         {
             // Sensitizing and loading dictionary to memory with PLINQ
             // This also removed invalid word based on the initial filter
-            var sanitizedAnagramWordPairs = dictionaryWords
+            Dictionary<CharacterDistribution, byte[][]> sanitizedAnagramWordPairs = dictionaryWords
                 .AsParallel()
-                .WithDegreeOfParallelism(numberOfThreads)
+                .WithDegreeOfParallelism(numberOfTasks)
                 .SanitizeWordDictionary(anagramFilter);
 
             // ------------ PARALLEL EXECUTION BREAKS HERE ------------ //
 
             // Create a second array containing only character distributions
             // TODO: This should be optimized further
-            var wordAnagrams = sanitizedAnagramWordPairs.Keys.ToArray();
+            CharacterDistribution[] wordAnagrams = sanitizedAnagramWordPairs.Keys.ToArray();
 
             // Initialize characters combinations query with PLINQ
             var anagramCombinations = wordAnagrams
                 .AsParallel()
-                .WithDegreeOfParallelism(numberOfThreads)
+                .WithDegreeOfParallelism(numberOfTasks)
                 .SelectMany(distribution =>
-                    GetDistributionSubCombinations(
+                    GetDistributionCombinations(
                         wordAnagrams,
                         distribution,
                         maximumNumberOfWords,
@@ -107,7 +108,7 @@ namespace RabbitChallenge
         // TODO: Should be possible to merge and might even increase the performance with
         // TODO: <see cref="GetDistributionSubCombinations(CharacterDistribution[], CharacterDistribution[], int, int, CharacterDistribution)" />
         // ReSharper disable once TooManyArguments
-        private static IEnumerable<CharacterDistribution[]> GetDistributionSubCombinations(
+        private static IEnumerable<CharacterDistribution[]> GetDistributionCombinations(
             CharacterDistribution[] characterDistributions,
             CharacterDistribution initialCharacterDistribution,
             int maxPhraseLength,
@@ -127,7 +128,7 @@ namespace RabbitChallenge
             }
 
             // If maximum possible length of phrases is one, then this is the only word we had to check for
-            if (maxPhraseLength == 1)
+            if (maxPhraseLength == 1 || !filter.IsValid())
             {
                 yield break;
             }
@@ -141,11 +142,6 @@ namespace RabbitChallenge
                     yield return words;
                 }
 
-                yield break;
-            }
-
-            if (filter.Rank <= 1 && (filter.Rank != 1 || !filter.ShouldConsiderAsValid()))
-            {
                 yield break;
             }
 
@@ -169,7 +165,7 @@ namespace RabbitChallenge
         ///     Returns valid sub combinations of <see cref="CharacterDistribution" />s that fits the filter provided.
         ///     The difference between this method and
         ///     <see
-        ///         cref="GetDistributionSubCombinations(CharacterDistribution[], CharacterDistribution, int, CharacterDistribution)" />
+        ///         cref="GetDistributionCombinations" />
         ///     is that this  method wont check to see if the currently passed <see cref="CharacterDistribution" />
         ///     meets the passed filter.
         /// </summary>
@@ -214,6 +210,11 @@ namespace RabbitChallenge
 
                 var newFilter = filter - word;
 
+                if (!newFilter.IsValid())
+                {
+                    continue;
+                }
+
                 if (currentPhraseLength == maxPhraseLength - 2)
                 {
                     if (characterDistributions.Contains(newFilter))
@@ -225,12 +226,7 @@ namespace RabbitChallenge
 
                     continue;
                 }
-
-                if (newFilter.Rank <= 1 && (newFilter.Rank != 1 || !newFilter.ShouldConsiderAsValid()))
-                {
-                    continue;
-                }
-
+                
                 var subCombinations = GetDistributionSubCombinations(
                     characterDistributions.Where(newFilter.CanContain).ToArray(),
                     newWords,
@@ -265,9 +261,9 @@ namespace RabbitChallenge
             return enumerable
                 .Select(str => str.ToLower().Trim())
                 .Distinct()
-                .Where(str => str.Length <= filter.Rank && (str.Length > 1 || str == "a" || str == "i" || str == "o"))
+                .Where(str => str.Length <= filter.Rank && str.Length > 0)
                 .GroupBy(CharacterDistribution.FromString)
-                .Where(grouping => filter.CanContain(grouping.Key))
+                .Where(grouping => grouping.Key.IsValid() && filter.CanContain(grouping.Key))
                 .OrderByDescending(grouping => grouping.Key.Rank)
                 .ToDictionary(
                     grouping => grouping.Key,

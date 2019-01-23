@@ -27,7 +27,7 @@ namespace RabbitChallenge
                 dictionaryWords.GetMatchedPhrases(
                     options.AnagramFilter,
                     options.MaximumNumberOfWords,
-                    options.NumberOfThreads
+                    options.NumberOfTasks
                 );
 
             foreach (var matchedPhrase in matchedPhrases)
@@ -128,7 +128,7 @@ namespace RabbitChallenge
                 Console.WriteLine(e.Message);
                 Console.WriteLine();
                 Console.WriteLine(
-                    $"dotnet \"{assemblyPath}\" {{NumberOfWords}} {{NumberOfThreads}} {{\"DictionaryFilePath\"}} {{\"Anagram}}\"}} {{\"MD5Hash\"}} [\"MD5Hash\"] [\"MD5Hash\"] [...] [NoReport]"
+                    $"dotnet \"{assemblyPath}\" {{NumberOfWords}} {{NumberOfTasks}} {{\"DictionaryFilePath\"}} {{\"Anagram}}\"}} {{\"MD5Hash\"}} [\"MD5Hash\"] [\"MD5Hash\"] [...] [NoReport]"
                 );
                 Console.WriteLine();
 
@@ -142,7 +142,7 @@ namespace RabbitChallenge
                 Console.WriteLine("Word Dictionary: {0}", options.WordDictionaryPath);
                 Console.WriteLine("Max Number of Words: {0}", options.MaximumNumberOfWords);
                 Console.WriteLine("MD5 Hashes: {0}", string.Join(", ", options.Hashes.Select(t => t.Item1)));
-                Console.WriteLine("Number of Threads: {0}", options.NumberOfThreads);
+                Console.WriteLine("Number of Tasks: {0}", options.NumberOfTasks);
             }
 
             return options;

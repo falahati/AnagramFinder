@@ -9,14 +9,14 @@ namespace RabbitChallenge
         // ReSharper disable once TooManyDependencies
         private Options(
             int maximumNumberOfWords,
-            int numberOfThreads,
+            int numberOfTasks,
             string wordDictionaryPath,
             CharacterDistribution anagramFilter,
             Tuple<string, byte[]>[] hashes,
             bool noReport)
         {
             MaximumNumberOfWords = maximumNumberOfWords;
-            NumberOfThreads = numberOfThreads;
+            NumberOfTasks = numberOfTasks;
             WordDictionaryPath = wordDictionaryPath;
             AnagramFilter = anagramFilter;
             Hashes = hashes;
@@ -28,7 +28,7 @@ namespace RabbitChallenge
         public int MaximumNumberOfWords { get; }
 
         public bool NoReport { get; }
-        public int NumberOfThreads { get; }
+        public int NumberOfTasks { get; }
         public string WordDictionaryPath { get; }
 
         public static Options FromArguments(string[] arguments)
@@ -38,9 +38,9 @@ namespace RabbitChallenge
                 throw new ArgumentException("Invalid maximum number of words.");
             }
 
-            if (arguments.Length < 2 || !int.TryParse(arguments[1], out var numberOfThreads) || numberOfThreads <= 0)
+            if (arguments.Length < 2 || !int.TryParse(arguments[1], out var numberOfTasks) || numberOfTasks <= 0)
             {
-                throw new ArgumentException("Invalid number of threads.");
+                throw new ArgumentException("Invalid number of tasks.");
             }
 
             if (arguments.Length < 3 || string.IsNullOrWhiteSpace(arguments[2]) || !File.Exists(arguments[2].Trim()))
@@ -79,7 +79,7 @@ namespace RabbitChallenge
 
             return new Options(
                 maxNumberOfWords,
-                numberOfThreads,
+                numberOfTasks,
                 wordDictionaryPath,
                 anagramFilter,
                 hashStrings.Select(
