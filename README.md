@@ -1,6 +1,13 @@
 # AnagramFinder
 This is a NetStandard C# answer to the TrustPilot's Rabbit Hole Challenge
 
+Works for any anagram as long as it fits inside the 26 characters of english language.
+
+* Optimized for longer words - finds them first
+* Ignores single character words (except 'I', 'A' and 'O')
+* Numbers and symbols are not supported
+
+## Benchmarks
 Test system is a i7-8700K clocked at 3.7GHz (6 physical, 12 logical) with access to 32GB of memory. However memory usage is minimal.
 
 Single thread general performance (8% CPU usage with my spec):
