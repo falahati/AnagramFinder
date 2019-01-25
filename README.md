@@ -7,11 +7,11 @@ Single thread general performance (8% CPU usage with my spec):
 
 | Maximum Phrase Length | First Phrase | Second Phrase | Third Phrase | Total Duration | Total Matched Phrases | Speed |
 | --------------------- | ------------ | ------------- | ------------ | -------------- | --------------------- | ----- |
-| 1 | - | - | - | 0.03s | 0 | 0 h/s |
-| 2 | - | - | - | 0.03s | 0 | 0 h/s |
-| 3 | 0.04s | 0.14s | - | 0.15s | 4,543 | 30,287 h/s |
-| 4 | 0.26s | 24.57s | 24.88s | 25.20s | 7,175,736 | 284,751 h/s |
-| 5 | 1.40s |49.23m |50.38m |51.44m | 1,036,917,884 | 335,923 h/s |
+| 1 | - | - | - | 0.03s | 0 | 0h/s |
+| 2 | - | - | - | 0.03s | 0 | 0h/s |
+| 3 | 0.04s | 0.14s | - | 0.15s | 4,543 | 30,287h/s |
+| 4 | 0.26s | 24.57s | 24.88s | 25.20s | 7,175,736 | 284,751h/s |
+| 5 | 1.40s |49.23m |50.38m |51.44m | 1,036,917,884 | 335,923h/s |
 
 
 Multi thread duration (Reaches 100% with 12 threads):
@@ -28,6 +28,6 @@ Optimal configuration for finding all hashes:
 
 | Maximum Phrase Length | Threads | Duration | Speed |
 | --------------------- | ------- | -------- |------ |
-| 3 | 6 | 0.08s | 56,787 h/s |
-| **4** | **24** | **6.13s** | **1,170,593 h/s** |
-| 5 | 24 | 14.12m (847s) | 1,223,935 h/s |
+| 3 | 6 | 0.08s | 56,787h/s |
+| **4** | **24** | **6.13s** | **1,170,593h/s** |
+| 5 | 24 | 14.12m (847s) | 1,223,935h/s |
